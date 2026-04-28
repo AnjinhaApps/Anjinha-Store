@@ -310,12 +310,12 @@ async function sendConfigPanel(interaction) {
     .addFields(
       {
         name: "🏪 Nome da loja",
-        value: config.storeName ? `\`${config.storeName}\`` : "`Não configurado`",
+        value: config.storeName ? `\`${config.storeName}\`` : "`Anjinha Store`",
         inline: true
       },
       {
         name: "🎨 Cor principal",
-        value: config.mainColor ? `\`${config.mainColor}\`` : "`Não configurada`",
+        value: config.mainColor ? `\`${config.mainColor}\`` : "`#9b59b6`",
         inline: true
       },
       {
@@ -337,7 +337,7 @@ async function sendConfigPanel(interaction) {
       },
       {
         name: "💸 Chave Pix",
-        value: config.pixKey ? "`Configurada`" : "`Não configurada`",
+        value: config.pixKey ? "`Configurada`" : "`anjinhalarah@gmail.com`",
         inline: true
       }
     )
