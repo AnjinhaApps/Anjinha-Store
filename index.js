@@ -154,22 +154,27 @@ function buildProductEmbed(product) {
     .setTitle(product.title)
     .setDescription(product.description)
     .addFields(
-      {
-        name: "🌎 Produto",
-        value: product.name,
-        inline: true
-      },
-      {
-        name: "💸 Preço",
-        value: formatMoney(product.price),
-        inline: true
-      },
-      {
-        name: "📦 Estoque",
-        value: String(product.stock),
-        inline: true
-      }
-    )
+  {
+    name: "🌎 Produto",
+    value: product.name,
+    inline: true
+  },
+  {
+    name: "💸 Preço",
+    value: formatMoney(product.price),
+    inline: true
+  },
+  {
+    name: "📦 Estoque",
+    value: String(product.stock),
+    inline: true
+  },
+  {
+    name: "🆔 ID para editar",
+    value: `\`${product.id}\``,
+    inline: false
+  }
+)
     .setFooter({
       text: product.footer || "Holy Store - Todos os direitos reservados"
     });
