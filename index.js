@@ -287,7 +287,7 @@ async function sendConfigPanel(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(getConfigColor(interaction.guild.id))
-    .setTitle(`⭐ | ${config.storeName || "Star Applications"} - Painel de Configuração`)
+    .setTitle(`🎀 | ${config.storeName || "Anjinha Store"} - Painel de Configuração`)
     .setDescription(
       "Transforme sua loja virtual em um verdadeiro sucesso. Veja abaixo tudo que você pode configurar e personalizar para deixar o sistema pronto para vendas.\n\n" +
         "────────────────────────\n\n" +
