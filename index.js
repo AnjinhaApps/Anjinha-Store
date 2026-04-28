@@ -82,19 +82,22 @@ function parseColor(color) {
   return parseInt(clean, 16);
 }
 
+function defaultGuildConfig() {
+  return {
+    storeName: "Holy Store",
+    mainColor: "#F1C40F",
+    adminRoleId: process.env.ADMIN_ROLE_ID || null,
+    deliveryChannelId: process.env.DELIVERY_CHANNEL_ID || null,
+    pixKey: process.env.PIX_KEY || null,
+    cartCategoryId: null
+  };
+}
+
 function getGuildConfig(guildId) {
   const db = loadDB();
 
   if (!db.guildConfigs[guildId]) {
-    db.guildConfigs[guildId] = {
-      storeName: "Holy Store",
-      mainColor: "#F1C40F",
-      adminRoleId: process.env.ADMIN_ROLE_ID || null,
-      deliveryChannelId: process.env.DELIVERY_CHANNEL_ID || null,
-      pixKey: process.env.PIX_KEY || null,
-      cartCategoryId: null
-    };
-
+    db.guildConfigs[guildId] = defaultGuildConfig();
     saveDB(db);
   }
 
@@ -105,14 +108,7 @@ function updateGuildConfig(guildId, data) {
   const db = loadDB();
 
   if (!db.guildConfigs[guildId]) {
-    db.guildConfigs[guildId] = {
-      storeName: "Holy Store",
-      mainColor: "#F1C40F",
-      adminRoleId: process.env.ADMIN_ROLE_ID || null,
-      deliveryChannelId: process.env.DELIVERY_CHANNEL_ID || null,
-      pixKey: process.env.PIX_KEY || null,
-      cartCategoryId: null
-    };
+    db.guildConfigs[guildId] = defaultGuildConfig();
   }
 
   db.guildConfigs[guildId] = {
@@ -152,6 +148,128 @@ function isConfigured(guildId) {
   );
 }
 
+function buildProductEmbed(product) {
+  const embed = new EmbedBuilder()
+    .setColor(product.color || 0xf1c40f)
+    .setTitle(product.title)
+    .setDescription(product.description)
+    .addFields(
+      {
+        name: "🌎 Produto",
+        value: product.name,
+        inline: true
+      },
+      {
+        name: "💸 Preço",
+        value: formatMoney(product.price),
+        inline: true
+      },
+      {
+        name: "📦 Estoque",
+        value: String(product.stock),
+        inline: true
+      }
+    )
+    .setFooter({
+      text: product.footer || "Holy Store - Todos os direitos reservados"
+    });
+
+  if (product.image) {
+    embed.setImage(product.image);
+  }
+
+  return embed;
+}
+
+function buildProductRow(productId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`addcart_${productId}`)
+      .setLabel("Adicionar ao carrinho")
+      .setEmoji("🛍️")
+      .setStyle(ButtonStyle.Success)
+  );
+}
+
+async function sendProductMessage(interaction, product) {
+  const msg = await interaction.channel.send({
+    embeds: [buildProductEmbed(product)],
+    components: [buildProductRow(product.id)]
+  });
+
+  const db = loadDB();
+
+  if (db.products[product.id]) {
+    db.products[product.id].channelId = msg.channel.id;
+    db.products[product.id].messageId = msg.id;
+    saveDB(db);
+  }
+
+  return msg;
+}
+
+async function updateProductMessage(guild, product) {
+  if (!product.channelId || !product.messageId) return false;
+
+  try {
+    const channel = await guild.channels.fetch(product.channelId);
+    if (!channel || !channel.isTextBased()) return false;
+
+    const message = await channel.messages.fetch(product.messageId);
+
+    await message.edit({
+      embeds: [buildProductEmbed(product)],
+      components: [buildProductRow(product.id)]
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildCouponEmbed(guildId, coupon) {
+  const title = coupon.title || "Cupom de desconto criado";
+
+  const description =
+    coupon.description ||
+    "Use este cupom no carrinho para receber desconto na sua compra.";
+
+  return new EmbedBuilder()
+    .setColor(coupon.color || getConfigColor(guildId))
+    .setTitle(title)
+    .setDescription(
+      `${description}\n\n` +
+        `🏷️ **Código:** \`${coupon.code}\`\n` +
+        `💸 **Desconto:** ${coupon.discount}%\n` +
+        `📌 **Status:** ${coupon.active ? "Ativo" : "Desativado"}\n\n` +
+        "Para usar, abra seu carrinho, clique em **Aplicar cupom** e digite o código acima."
+    )
+    .setFooter({
+      text: `${getGuildConfig(guildId).storeName} - Sistema de Cupons`
+    })
+    .setTimestamp();
+}
+
+async function updateCouponMessage(guild, coupon) {
+  if (!coupon.channelId || !coupon.messageId) return false;
+
+  try {
+    const channel = await guild.channels.fetch(coupon.channelId);
+    if (!channel || !channel.isTextBased()) return false;
+
+    const message = await channel.messages.fetch(coupon.messageId);
+
+    await message.edit({
+      embeds: [buildCouponEmbed(guild.id, coupon)]
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function sendConfigPanel(interaction) {
   const config = getGuildConfig(interaction.guild.id);
 
@@ -173,7 +291,9 @@ async function sendConfigPanel(interaction) {
         `**Categoria dos carrinhos:** ${
           config.cartCategoryId ? `<#${config.cartCategoryId}>` : "Automática"
         }\n` +
-        `**Chave Pix:** ${config.pixKey ? `\`${config.pixKey}\`` : "Não configurada"}`
+        `**Chave Pix:** ${
+          config.pixKey ? `\`${config.pixKey}\`` : "Não configurada"
+        }`
     )
     .setFooter({ text: "Sistema de configuração" })
     .setTimestamp();
@@ -220,7 +340,10 @@ async function getOrCreateCart(interaction, db) {
   const adminRoleId = config.adminRoleId || process.env.ADMIN_ROLE_ID;
 
   let cart = Object.values(db.carts).find(
-    (c) => c.userId === user.id && c.status === "open"
+    (c) =>
+      c.userId === user.id &&
+      c.status === "open" &&
+      c.guildId === guild.id
   );
 
   if (cart) {
@@ -417,50 +540,6 @@ async function renderCart(channel, cart) {
   }
 }
 
-async function sendProductMessage(interaction, product) {
-  const embed = new EmbedBuilder()
-    .setColor(product.color)
-    .setTitle(product.title)
-    .setDescription(product.description)
-    .addFields(
-      {
-        name: "🌎 Produto",
-        value: product.name,
-        inline: true
-      },
-      {
-        name: "💸 Preço",
-        value: formatMoney(product.price),
-        inline: true
-      },
-      {
-        name: "📦 Estoque",
-        value: String(product.stock),
-        inline: true
-      }
-    )
-    .setFooter({
-      text: product.footer || "Holy Store - Todos os direitos reservados"
-    });
-
-  if (product.image) {
-    embed.setImage(product.image);
-  }
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`addcart_${product.id}`)
-      .setLabel("Adicionar ao carrinho")
-      .setEmoji("🛍️")
-      .setStyle(ButtonStyle.Success)
-  );
-
-  await interaction.channel.send({
-    embeds: [embed],
-    components: [row]
-  });
-}
-
 client.once("ready", async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
 
@@ -530,6 +609,71 @@ client.once("ready", async () => {
       .toJSON(),
 
     new SlashCommandBuilder()
+      .setName("editarproduto")
+      .setDescription("Edita um produto já criado pelo ID.")
+      .addStringOption((option) =>
+        option
+          .setName("id")
+          .setDescription("ID do produto que será editado.")
+          .setRequired(true)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("titulo")
+          .setDescription("Novo título da embed.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("produto")
+          .setDescription("Novo nome do produto.")
+          .setRequired(false)
+      )
+      .addNumberOption((option) =>
+        option
+          .setName("preco")
+          .setDescription("Novo preço do produto.")
+          .setRequired(false)
+      )
+      .addIntegerOption((option) =>
+        option
+          .setName("estoque")
+          .setDescription("Novo estoque do produto.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("descricao")
+          .setDescription("Nova descrição do produto.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("imagem")
+          .setDescription("Novo link da imagem ou digite remover.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("emoji")
+          .setDescription("Novo emoji do produto.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("cor")
+          .setDescription("Nova cor em hexadecimal. Exemplo: #F1C40F")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("rodape")
+          .setDescription("Novo texto do rodapé.")
+          .setRequired(false)
+      )
+      .toJSON(),
+
+    new SlashCommandBuilder()
       .setName("addcupom")
       .setDescription("Cria um cupom de desconto personalizado.")
       .addStringOption((option) =>
@@ -562,6 +706,51 @@ client.once("ready", async () => {
           .setDescription("Cor em hexadecimal. Exemplo: #F1C40F")
           .setRequired(false)
       )
+      .toJSON(),
+
+    new SlashCommandBuilder()
+      .setName("editarcupom")
+      .setDescription("Edita um cupom já criado pelo código.")
+      .addStringOption((option) =>
+        option
+          .setName("codigo")
+          .setDescription("Código do cupom que será editado.")
+          .setRequired(true)
+      )
+      .addNumberOption((option) =>
+        option
+          .setName("desconto")
+          .setDescription("Nova porcentagem de desconto.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("titulo")
+          .setDescription("Novo título da mensagem do cupom.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("descricao")
+          .setDescription("Nova descrição personalizada.")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("cor")
+          .setDescription("Nova cor em hexadecimal. Exemplo: #F1C40F")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("status")
+          .setDescription("Ativar ou desativar o cupom.")
+          .setRequired(false)
+          .addChoices(
+            { name: "Ativar", value: "ativar" },
+            { name: "Desativar", value: "desativar" }
+          )
+      )
       .toJSON()
   ];
 
@@ -582,7 +771,11 @@ client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "painel") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (
+          !interaction.member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+          )
+        ) {
           return interaction.reply({
             content: "❌ Apenas administradores podem abrir o painel.",
             ephemeral: true
@@ -647,7 +840,10 @@ client.on("interactionCreate", async (interaction) => {
           emoji,
           color,
           footer,
-          createdAt: Date.now()
+          channelId: null,
+          messageId: null,
+          createdAt: Date.now(),
+          updatedAt: null
         };
 
         db.products[product.id] = product;
@@ -656,7 +852,129 @@ client.on("interactionCreate", async (interaction) => {
         await sendProductMessage(interaction, product);
 
         return interaction.reply({
-          content: "✅ Produto criado e enviado com sucesso.",
+          content:
+            `✅ Produto criado e enviado com sucesso.\n` +
+            `🆔 **ID do produto:** \`${product.id}\`\n\n` +
+            `Use esse ID no comando \`/editarproduto\`.`,
+          ephemeral: true
+        });
+      }
+
+      if (interaction.commandName === "editarproduto") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem editar produtos.",
+            ephemeral: true
+          });
+        }
+
+        const productId = interaction.options
+          .getString("id")
+          .trim()
+          .toUpperCase();
+
+        const db = loadDB();
+        const product = db.products[productId];
+
+        if (!product) {
+          return interaction.reply({
+            content: "❌ Produto não encontrado. Confira o ID informado.",
+            ephemeral: true
+          });
+        }
+
+        if (product.guildId && product.guildId !== interaction.guild.id) {
+          return interaction.reply({
+            content: "❌ Este produto não pertence a este servidor.",
+            ephemeral: true
+          });
+        }
+
+        const newTitle = interaction.options.getString("titulo");
+        const newName = interaction.options.getString("produto");
+        const newPrice = interaction.options.getNumber("preco");
+        const newStock = interaction.options.getInteger("estoque");
+        const newDescription = interaction.options.getString("descricao");
+        const newImage = interaction.options.getString("imagem");
+        const newEmoji = interaction.options.getString("emoji");
+        const newColor = interaction.options.getString("cor");
+        const newFooter = interaction.options.getString("rodape");
+
+        if (
+          newTitle === null &&
+          newName === null &&
+          newPrice === null &&
+          newStock === null &&
+          newDescription === null &&
+          newImage === null &&
+          newEmoji === null &&
+          newColor === null &&
+          newFooter === null
+        ) {
+          return interaction.reply({
+            content:
+              "❌ Você precisa informar pelo menos uma informação para editar.",
+            ephemeral: true
+          });
+        }
+
+        if (newPrice !== null && newPrice <= 0) {
+          return interaction.reply({
+            content: "❌ O preço precisa ser maior que 0.",
+            ephemeral: true
+          });
+        }
+
+        if (newStock !== null && newStock < 0) {
+          return interaction.reply({
+            content: "❌ O estoque não pode ser negativo.",
+            ephemeral: true
+          });
+        }
+
+        if (newColor !== null && !/^#?[0-9A-Fa-f]{6}$/.test(newColor)) {
+          return interaction.reply({
+            content: "❌ Cor inválida. Use o formato HEX. Exemplo: #F1C40F",
+            ephemeral: true
+          });
+        }
+
+        if (newTitle !== null) product.title = newTitle;
+        if (newName !== null) product.name = newName;
+        if (newPrice !== null) product.price = newPrice;
+        if (newStock !== null) product.stock = newStock;
+        if (newDescription !== null) product.description = newDescription;
+
+        if (newImage !== null) {
+          const imageValue = newImage.trim();
+
+          if (imageValue.toLowerCase() === "remover") {
+            product.image = null;
+          } else {
+            product.image = imageValue;
+          }
+        }
+
+        if (newEmoji !== null) product.emoji = newEmoji;
+        if (newColor !== null) product.color = parseColor(newColor);
+        if (newFooter !== null) product.footer = newFooter;
+
+        product.updatedAt = Date.now();
+
+        db.products[product.id] = product;
+        saveDB(db);
+
+        const editedMessage = await updateProductMessage(
+          interaction.guild,
+          product
+        );
+
+        return interaction.reply({
+          content:
+            `✅ Produto \`${product.id}\` editado com sucesso.\n` +
+            (editedMessage
+              ? "✅ A mensagem do produto também foi atualizada."
+              : "⚠️ Produto salvo, mas não consegui editar a mensagem antiga. Talvez ela tenha sido apagada ou o bot não tenha permissão."),
           ephemeral: true
         });
       }
@@ -706,46 +1024,146 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const db = loadDB();
+        const couponKey = `${interaction.guild.id}_${code}`;
 
-        db.coupons[`${interaction.guild.id}_${code}`] = {
+        const coupon = {
           code,
           guildId: interaction.guild.id,
           discount,
+          title,
+          description,
+          color,
           createdBy: interaction.user.id,
           createdAt: Date.now(),
-          active: true
+          updatedAt: null,
+          active: true,
+          channelId: null,
+          messageId: null
         };
 
+        db.coupons[couponKey] = coupon;
         saveDB(db);
 
-        const embed = new EmbedBuilder()
-          .setColor(color)
-          .setTitle(title)
-          .setDescription(
-            `${description}\n\n` +
-              `🏷️ **Código:** \`${code}\`\n` +
-              `💸 **Desconto:** ${discount}%\n\n` +
-              "Para usar, abra seu carrinho, clique em **Aplicar cupom** e digite o código acima."
-          )
-          .setFooter({ text: `${getGuildConfig(interaction.guild.id).storeName} - Sistema de Cupons` })
-          .setTimestamp();
-
-        await interaction.channel.send({
-          embeds: [embed]
+        const msg = await interaction.channel.send({
+          embeds: [buildCouponEmbed(interaction.guild.id, coupon)]
         });
+
+        const newDb = loadDB();
+
+        if (newDb.coupons[couponKey]) {
+          newDb.coupons[couponKey].channelId = msg.channel.id;
+          newDb.coupons[couponKey].messageId = msg.id;
+          saveDB(newDb);
+        }
 
         return interaction.reply({
           content: `✅ Cupom \`${code}\` criado com ${discount}% de desconto.`,
           ephemeral: true
         });
       }
+
+      if (interaction.commandName === "editarcupom") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem editar cupons.",
+            ephemeral: true
+          });
+        }
+
+        const code = interaction.options
+          .getString("codigo")
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, "");
+
+        const db = loadDB();
+        const couponKey = `${interaction.guild.id}_${code}`;
+        const coupon = db.coupons[couponKey] || db.coupons[code];
+
+        if (!coupon) {
+          return interaction.reply({
+            content: "❌ Cupom não encontrado. Confira o código informado.",
+            ephemeral: true
+          });
+        }
+
+        if (coupon.guildId && coupon.guildId !== interaction.guild.id) {
+          return interaction.reply({
+            content: "❌ Este cupom não pertence a este servidor.",
+            ephemeral: true
+          });
+        }
+
+        const newDiscount = interaction.options.getNumber("desconto");
+        const newTitle = interaction.options.getString("titulo");
+        const newDescription = interaction.options.getString("descricao");
+        const newColor = interaction.options.getString("cor");
+        const newStatus = interaction.options.getString("status");
+
+        if (
+          newDiscount === null &&
+          newTitle === null &&
+          newDescription === null &&
+          newColor === null &&
+          newStatus === null
+        ) {
+          return interaction.reply({
+            content:
+              "❌ Você precisa informar pelo menos uma informação para editar.",
+            ephemeral: true
+          });
+        }
+
+        if (newDiscount !== null && (newDiscount <= 0 || newDiscount > 90)) {
+          return interaction.reply({
+            content: "❌ O desconto precisa ser maior que 0 e no máximo 90%.",
+            ephemeral: true
+          });
+        }
+
+        if (newColor !== null && !/^#?[0-9A-Fa-f]{6}$/.test(newColor)) {
+          return interaction.reply({
+            content: "❌ Cor inválida. Use o formato HEX. Exemplo: #F1C40F",
+            ephemeral: true
+          });
+        }
+
+        if (newDiscount !== null) coupon.discount = newDiscount;
+        if (newTitle !== null) coupon.title = newTitle;
+        if (newDescription !== null) coupon.description = newDescription;
+        if (newColor !== null) coupon.color = parseColor(newColor);
+
+        if (newStatus !== null) {
+          coupon.active = newStatus === "ativar";
+        }
+
+        coupon.updatedAt = Date.now();
+
+        db.coupons[`${interaction.guild.id}_${coupon.code}`] = coupon;
+        saveDB(db);
+
+        const editedMessage = await updateCouponMessage(interaction.guild, coupon);
+
+        return interaction.reply({
+          content:
+            `✅ Cupom \`${coupon.code}\` editado com sucesso.\n` +
+            (editedMessage
+              ? "✅ A mensagem do cupom também foi atualizada."
+              : "⚠️ Cupom salvo, mas não consegui editar a mensagem antiga. Talvez ela tenha sido apagada ou o bot não tenha permissão."),
+          ephemeral: true
+        });
+      }
     }
 
-    if (interaction.isButton()) {
+  if (interaction.isButton()) {
       const db = loadDB();
 
       if (interaction.customId === "config_loja") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (
+          !interaction.member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+          )
+        ) {
           return interaction.reply({
             content: "❌ Apenas administradores podem configurar a loja.",
             ephemeral: true
@@ -783,7 +1201,11 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId === "config_canais") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (
+          !interaction.member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+          )
+        ) {
           return interaction.reply({
             content: "❌ Apenas administradores podem configurar os canais.",
             ephemeral: true
@@ -830,7 +1252,11 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (interaction.customId === "config_pagamento") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (
+          !interaction.member.permissions.has(
+            PermissionsBitField.Flags.Administrator
+          )
+        ) {
           return interaction.reply({
             content: "❌ Apenas administradores podem configurar o pagamento.",
             ephemeral: true
@@ -883,7 +1309,8 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.customId.startsWith("addcart_")) {
         if (!isConfigured(interaction.guild.id)) {
           return interaction.reply({
-            content: "❌ Este servidor ainda não foi configurado. Use `/painel` primeiro.",
+            content:
+              "❌ Este servidor ainda não foi configurado. Use `/painel` primeiro.",
             ephemeral: true
           });
         }
@@ -918,6 +1345,8 @@ client.on("interactionCreate", async (interaction) => {
 
         if (existing) {
           existing.quantity += 1;
+          existing.name = product.name;
+          existing.price = product.price;
         } else {
           cart.items.push({
             id: product.id,
@@ -968,6 +1397,8 @@ client.on("interactionCreate", async (interaction) => {
             await interaction.channel.delete();
           } catch {}
         }, 5000);
+
+        return;
       }
 
       if (interaction.customId.startsWith("coupon_")) {
@@ -1135,6 +1566,8 @@ client.on("interactionCreate", async (interaction) => {
               0,
               db.products[item.id].stock - item.quantity
             );
+
+            await updateProductMessage(interaction.guild, db.products[item.id]);
           }
         }
 
@@ -1174,7 +1607,8 @@ client.on("interactionCreate", async (interaction) => {
         const deliveryChannelId =
           config.deliveryChannelId || process.env.DELIVERY_CHANNEL_ID;
 
-        const deliveryChannel = interaction.guild.channels.cache.get(deliveryChannelId);
+        const deliveryChannel =
+          interaction.guild.channels.cache.get(deliveryChannelId);
 
         if (deliveryChannel) {
           await deliveryChannel.send({
@@ -1189,6 +1623,8 @@ client.on("interactionCreate", async (interaction) => {
             "✅ Sua compra foi aprovada. Aguarde a entrega pelo servidor."
           );
         } catch {}
+
+        return;
       }
 
       if (interaction.customId.startsWith("reject_")) {
@@ -1222,8 +1658,13 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isModalSubmit()) {
       if (interaction.customId === "modal_config_loja") {
-        const storeName = interaction.fields.getTextInputValue("store_name").trim();
-        const mainColor = interaction.fields.getTextInputValue("main_color").trim();
+        const storeName = interaction.fields
+          .getTextInputValue("store_name")
+          .trim();
+
+        const mainColor = interaction.fields
+          .getTextInputValue("main_color")
+          .trim();
 
         if (!/^#[0-9A-Fa-f]{6}$/.test(mainColor)) {
           return interaction.reply({
@@ -1257,7 +1698,8 @@ client.on("interactionCreate", async (interaction) => {
           .trim();
 
         const role = interaction.guild.roles.cache.get(adminRoleId);
-        const deliveryChannel = interaction.guild.channels.cache.get(deliveryChannelId);
+        const deliveryChannel =
+          interaction.guild.channels.cache.get(deliveryChannelId);
 
         if (!role) {
           return interaction.reply({
@@ -1268,7 +1710,8 @@ client.on("interactionCreate", async (interaction) => {
 
         if (!deliveryChannel || deliveryChannel.type !== ChannelType.GuildText) {
           return interaction.reply({
-            content: "❌ Canal de entregas inválido. Use o ID de um canal de texto.",
+            content:
+              "❌ Canal de entregas inválido. Use o ID de um canal de texto.",
             ephemeral: true
           });
         }
@@ -1278,7 +1721,8 @@ client.on("interactionCreate", async (interaction) => {
 
           if (!category || category.type !== ChannelType.GuildCategory) {
             return interaction.reply({
-              content: "❌ Categoria inválida. Use o ID de uma categoria ou deixe vazio.",
+              content:
+                "❌ Categoria inválida. Use o ID de uma categoria ou deixe vazio.",
               ephemeral: true
             });
           }
