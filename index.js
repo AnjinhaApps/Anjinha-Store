@@ -278,62 +278,142 @@ async function updateCouponMessage(guild, coupon) {
 async function sendConfigPanel(interaction) {
   const config = getGuildConfig(interaction.guild.id);
 
+  const guildIcon = interaction.guild.iconURL({
+    dynamic: true,
+    size: 1024
+  });
+
+  const configured = isConfigured(interaction.guild.id);
+
   const embed = new EmbedBuilder()
     .setColor(getConfigColor(interaction.guild.id))
-    .setTitle("Painel de Configuração")
+    .setTitle(`⭐ | ${config.storeName || "Star Applications"} - Painel de Configuração`)
     .setDescription(
-      "Configure as principais informações do bot neste servidor.\n\n" +
-        `**Nome da loja:** ${config.storeName || "Não configurado"}\n` +
-        `**Cor principal:** ${config.mainColor || "Não configurado"}\n` +
-        `**Cargo admin:** ${
-          config.adminRoleId ? `<@&${config.adminRoleId}>` : "Não configurado"
-        }\n` +
-        `**Canal de entregas:** ${
-          config.deliveryChannelId
-            ? `<#${config.deliveryChannelId}>`
-            : "Não configurado"
-        }\n` +
-        `**Categoria dos carrinhos:** ${
-          config.cartCategoryId ? `<#${config.cartCategoryId}>` : "Automática"
-        }\n` +
-        `**Chave Pix:** ${
-          config.pixKey ? `\`${config.pixKey}\`` : "Não configurada"
+      "Transforme sua loja virtual em um verdadeiro sucesso. Veja abaixo tudo que você pode configurar e personalizar para deixar o sistema pronto para vendas.\n\n" +
+        "────────────────────────\n\n" +
+        "</> **Painel de navegação**\n\n" +
+        `🛠️ **Configurar loja**\n` +
+        `Altere o nome da loja e a cor principal do sistema.\n\n` +
+        `📁 **Configurar canais**\n` +
+        `Defina o cargo da equipe, canal de entregas e categoria dos carrinhos.\n\n` +
+        `💳 **Configurar pagamentos**\n` +
+        `Configure a chave Pix que será enviada ao cliente na hora da compra.\n\n` +
+        `✅ **Verificar configuração**\n` +
+        `Veja se o bot já está pronto para funcionar corretamente.\n\n` +
+        "────────────────────────\n\n" +
+        `📌 **Status atual:** ${
+          configured
+            ? "✅ Sistema configurado e pronto para vendas."
+            : "⚠️ Ainda falta configurar algumas informações."
         }`
     )
-    .setFooter({ text: "Sistema de configuração" })
+    .addFields(
+      {
+        name: "🏪 Nome da loja",
+        value: config.storeName ? `\`${config.storeName}\`` : "`Não configurado`",
+        inline: true
+      },
+      {
+        name: "🎨 Cor principal",
+        value: config.mainColor ? `\`${config.mainColor}\`` : "`Não configurada`",
+        inline: true
+      },
+      {
+        name: "👑 Cargo admin",
+        value: config.adminRoleId ? `<@&${config.adminRoleId}>` : "`Não configurado`",
+        inline: true
+      },
+      {
+        name: "📦 Canal de entregas",
+        value: config.deliveryChannelId
+          ? `<#${config.deliveryChannelId}>`
+          : "`Não configurado`",
+        inline: true
+      },
+      {
+        name: "🛒 Categoria carrinhos",
+        value: config.cartCategoryId ? `<#${config.cartCategoryId}>` : "`Automática`",
+        inline: true
+      },
+      {
+        name: "💸 Chave Pix",
+        value: config.pixKey ? "`Configurada`" : "`Não configurada`",
+        inline: true
+      }
+    )
+    .setFooter({
+      text: `${interaction.guild.name} • Sistema de loja automatizada`,
+      iconURL: guildIcon || undefined
+    })
     .setTimestamp();
+
+  if (guildIcon) {
+    embed.setThumbnail(guildIcon);
+  }
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("config_loja")
-      .setLabel("Configurar loja")
-      .setEmoji("🏪")
+      .setLabel("Configurar Loja")
+      .setEmoji("🛠️")
       .setStyle(ButtonStyle.Primary),
 
     new ButtonBuilder()
-      .setCustomId("config_canais")
-      .setLabel("Configurar canais")
-      .setEmoji("📁")
-      .setStyle(ButtonStyle.Secondary),
-
-    new ButtonBuilder()
       .setCustomId("config_pagamento")
-      .setLabel("Configurar pagamento")
-      .setEmoji("💸")
-      .setStyle(ButtonStyle.Success)
+      .setLabel("Configurar Pagamentos")
+      .setEmoji("💳")
+      .setStyle(ButtonStyle.Primary)
   );
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
+      .setCustomId("config_canais")
+      .setLabel("Configurar Canais")
+      .setEmoji("📁")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
       .setCustomId("config_verificar")
-      .setLabel("Verificar configuração")
+      .setLabel("Verificar Configuração")
       .setEmoji("✅")
+      .setStyle(ButtonStyle.Success)
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("config_seguranca_off")
+      .setLabel("Gerenciar Segurança")
+      .setEmoji("🛡️")
       .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true),
+
+    new ButtonBuilder()
+      .setCustomId("config_personalizacao_off")
+      .setLabel("Personalização")
+      .setEmoji("🖌️")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true)
+  );
+
+  const row4 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("config_automacao_off")
+      .setLabel("Configurar Automação")
+      .setEmoji("🗄️")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true),
+
+    new ButtonBuilder()
+      .setCustomId("config_equipe_off")
+      .setLabel("Gerenciar Equipe")
+      .setEmoji("👥")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true)
   );
 
   return interaction.reply({
     embeds: [embed],
-    components: [row1, row2],
+    components: [row1, row2, row3, row4],
     ephemeral: true
   });
 }
