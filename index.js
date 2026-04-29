@@ -85,7 +85,7 @@ function parseColor(color) {
 
 function defaultGuildConfig() {
   return {
-    storeName: "Anjinha' Store",
+    storeName: "Angel' Store",
     mainColor: "#9b59b6",
     adminRoleId: process.env.ADMIN_ROLE_ID || null,
     deliveryChannelId: process.env.DELIVERY_CHANNEL_ID || null,
