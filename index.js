@@ -14,7 +14,8 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  ChannelSelectMenuBuilder
 } = require("discord.js");
 
 const client = new Client({
@@ -154,27 +155,27 @@ function buildProductEmbed(product) {
     .setTitle(product.title)
     .setDescription(product.description)
     .addFields(
-  {
-    name: "🌎 Produto",
-    value: product.name,
-    inline: true
-  },
-  {
-    name: "💸 Preço",
-    value: formatMoney(product.price),
-    inline: true
-  },
-  {
-    name: "📦 Estoque",
-    value: String(product.stock),
-    inline: true
-  },
-  {
-    name: "🆔 ID para editar",
-    value: `\`${product.id}\``,
-    inline: false
-  }
-)
+      {
+        name: "🌎 Produto",
+        value: product.name,
+        inline: true
+      },
+      {
+        name: "💸 Preço",
+        value: formatMoney(product.price),
+        inline: true
+      },
+      {
+        name: "📦 Estoque",
+        value: String(product.stock),
+        inline: true
+      },
+      {
+        name: "🆔 ID para editar",
+        value: `\`${product.id}\``,
+        inline: false
+      }
+    )
     .setFooter({
       text: product.footer || "Holy Store - Todos os direitos reservados"
     });
@@ -298,6 +299,8 @@ async function sendConfigPanel(interaction) {
         `Defina o cargo da equipe, canal de entregas e categoria dos carrinhos.\n\n` +
         `💳 **Configurar pagamentos**\n` +
         `Configure a chave Pix que será enviada ao cliente na hora da compra.\n\n` +
+        `🗄️ **Configurar automação**\n` +
+        `Crie mensagens personalizadas em embed para enviar em canais escolhidos.\n\n` +
         `✅ **Verificar configuração**\n` +
         `Veja se o bot já está pronto para funcionar corretamente.\n\n` +
         "────────────────────────\n\n" +
@@ -337,7 +340,7 @@ async function sendConfigPanel(interaction) {
       },
       {
         name: "💸 Chave Pix",
-        value: config.pixKey ? "`Configurada`" : "`anjinhalarah@gmail.com`",
+        value: config.pixKey ? "`Configurada`" : "`Não configurada`",
         inline: true
       }
     )
@@ -397,11 +400,10 @@ async function sendConfigPanel(interaction) {
 
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("config_automacao_off")
+      .setCustomId("config_automacao")
       .setLabel("Configurar Automação")
       .setEmoji("🗄️")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(true),
+      .setStyle(ButtonStyle.Secondary),
 
     new ButtonBuilder()
       .setCustomId("config_equipe_off")
@@ -414,6 +416,47 @@ async function sendConfigPanel(interaction) {
   return interaction.reply({
     embeds: [embed],
     components: [row1, row2, row3, row4],
+    ephemeral: true
+  });
+}
+
+async function sendAutomationPanel(interaction) {
+  const guildIcon = interaction.guild.iconURL({
+    dynamic: true,
+    size: 1024
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(getConfigColor(interaction.guild.id))
+    .setTitle("🗄️ | Painel de Automação")
+    .setDescription(
+      "Configure automações para facilitar o funcionamento da sua loja.\n\n" +
+        "📨 **Criar mensagem personalizada**\n" +
+        "Crie uma embed personalizada e envie em um canal escolhido.\n\n" +
+        "Selecione abaixo o canal onde a mensagem será enviada."
+    )
+    .setFooter({
+      text: `${interaction.guild.name} • Sistema de automação`,
+      iconURL: guildIcon || undefined
+    })
+    .setTimestamp();
+
+  if (guildIcon) {
+    embed.setThumbnail(guildIcon);
+  }
+
+  const channelRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId("automation_select_channel")
+      .setPlaceholder("Selecione o canal para enviar a mensagem")
+      .setChannelTypes(ChannelType.GuildText)
+      .setMinValues(1)
+      .setMaxValues(1)
+  );
+
+  return interaction.reply({
+    embeds: [embed],
+    components: [channelRow],
     ephemeral: true
   });
 }
@@ -1240,8 +1283,87 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-  if (interaction.isButton()) {
+      if (interaction.isButton()) {
       const db = loadDB();
+
+      if (interaction.customId === "config_automacao") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem configurar automações.",
+            ephemeral: true
+          });
+        }
+
+        return sendAutomationPanel(interaction);
+      }
+
+      if (interaction.customId.startsWith("custom_message_create_")) {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem criar mensagens personalizadas.",
+            ephemeral: true
+          });
+        }
+
+        const channelId = interaction.customId.replace("custom_message_create_", "");
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido ou não encontrado.",
+            ephemeral: true
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`modal_custom_message_${channelId}`)
+          .setTitle("Mensagem personalizada");
+
+        const titleInput = new TextInputBuilder()
+          .setCustomId("custom_title")
+          .setLabel("Título da embed")
+          .setPlaceholder("Exemplo: Bem-vindo à Anjinha Store")
+          .setRequired(true)
+          .setStyle(TextInputStyle.Short);
+
+        const descriptionInput = new TextInputBuilder()
+          .setCustomId("custom_description")
+          .setLabel("Descrição da embed")
+          .setPlaceholder("Digite o texto principal da mensagem")
+          .setRequired(true)
+          .setStyle(TextInputStyle.Paragraph);
+
+        const colorInput = new TextInputBuilder()
+          .setCustomId("custom_color")
+          .setLabel("Cor em HEX")
+          .setPlaceholder("Exemplo: #9B59B6")
+          .setRequired(false)
+          .setStyle(TextInputStyle.Short);
+
+        const imageInput = new TextInputBuilder()
+          .setCustomId("custom_image")
+          .setLabel("Link da imagem/banner")
+          .setPlaceholder("Opcional")
+          .setRequired(false)
+          .setStyle(TextInputStyle.Short);
+
+        const footerInput = new TextInputBuilder()
+          .setCustomId("custom_footer")
+          .setLabel("Rodapé da embed")
+          .setPlaceholder("Exemplo: Anjinha Store • Sistema automático")
+          .setRequired(false)
+          .setStyle(TextInputStyle.Short);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(titleInput),
+          new ActionRowBuilder().addComponents(descriptionInput),
+          new ActionRowBuilder().addComponents(colorInput),
+          new ActionRowBuilder().addComponents(imageInput),
+          new ActionRowBuilder().addComponents(footerInput)
+        );
+
+        return interaction.showModal(modal);
+      }
 
       if (interaction.customId === "config_loja") {
         if (
@@ -1741,6 +1863,52 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+        if (interaction.isChannelSelectMenu()) {
+      if (interaction.customId === "automation_select_channel") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem usar a automação.",
+            ephemeral: true
+          });
+        }
+
+        const channelId = interaction.values[0];
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido. Selecione um canal de texto.",
+            ephemeral: true
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(getConfigColor(interaction.guild.id))
+          .setTitle("📨 | Criar mensagem personalizada")
+          .setDescription(
+            `Canal selecionado: <#${channelId}>\n\n` +
+              "Clique no botão abaixo para configurar a embed personalizada que será enviada nesse canal."
+          )
+          .setFooter({
+            text: `${interaction.guild.name} • Mensagem personalizada`
+          })
+          .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`custom_message_create_${channelId}`)
+            .setLabel("Criar mensagem personalizada")
+            .setEmoji("📨")
+            .setStyle(ButtonStyle.Primary)
+        );
+
+        return interaction.update({
+          embeds: [embed],
+          components: [row]
+        });
+      }
+    }
+
     if (interaction.isModalSubmit()) {
       if (interaction.customId === "modal_config_loja") {
         const storeName = interaction.fields
@@ -1841,6 +2009,81 @@ client.on("interactionCreate", async (interaction) => {
 
         return interaction.reply({
           content: "✅ Pagamento configurado com sucesso.",
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId.startsWith("modal_custom_message_")) {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem enviar mensagens personalizadas.",
+            ephemeral: true
+          });
+        }
+
+        const channelId = interaction.customId.replace("modal_custom_message_", "");
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido ou não encontrado.",
+            ephemeral: true
+          });
+        }
+
+        const title = interaction.fields
+          .getTextInputValue("custom_title")
+          .trim();
+
+        const description = interaction.fields
+          .getTextInputValue("custom_description")
+          .trim();
+
+        const colorText = interaction.fields
+          .getTextInputValue("custom_color")
+          .trim();
+
+        const image = interaction.fields
+          .getTextInputValue("custom_image")
+          .trim();
+
+        const footer = interaction.fields
+          .getTextInputValue("custom_footer")
+          .trim();
+
+        if (colorText && !/^#?[0-9A-Fa-f]{6}$/.test(colorText)) {
+          return interaction.reply({
+            content: "❌ Cor inválida. Use o formato HEX. Exemplo: #9B59B6",
+            ephemeral: true
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(
+            colorText
+              ? parseColor(colorText)
+              : getConfigColor(interaction.guild.id)
+          )
+          .setTitle(title)
+          .setDescription(description)
+          .setTimestamp();
+
+        if (image) {
+          embed.setImage(image);
+        }
+
+        embed.setFooter({
+          text:
+            footer ||
+            `${getGuildConfig(interaction.guild.id).storeName} • Mensagem automática`
+        });
+
+        await channel.send({
+          embeds: [embed]
+        });
+
+        return interaction.reply({
+          content: `✅ Mensagem personalizada enviada com sucesso em <#${channelId}>.`,
           ephemeral: true
         });
       }
