@@ -749,6 +749,12 @@ async function renderCart(channel, cart) {
 client.once("ready", async () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
 
+    client.invites = new Map();
+
+  for (const guild of client.guilds.cache.values()) {
+    await cacheGuildInvites(guild);
+  }
+
   const commands = [
     new SlashCommandBuilder()
       .setName("painel")
