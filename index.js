@@ -1370,6 +1370,17 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.isButton()) {
       const db = loadDB();
 
+              if (interaction.customId === "config_personalizacao") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem configurar a personalização.",
+            ephemeral: true
+          });
+        }
+
+        return sendPersonalizationPanel(interaction);
+      }
+
       if (interaction.customId === "config_automacao") {
         if (!isAdmin(interaction.member)) {
           return interaction.reply({
