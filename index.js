@@ -94,7 +94,9 @@ function defaultGuildConfig() {
     adminRoleId: process.env.ADMIN_ROLE_ID || null,
     deliveryChannelId: process.env.DELIVERY_CHANNEL_ID || null,
     pixKey: process.env.PIX_KEY || null,
-    cartCategoryId: null
+    cartCategoryId: null,
+    inviteChannelId: null,
+    welcomeChannelId: null
   };
 }
 
