@@ -397,12 +397,11 @@ async function sendConfigPanel(interaction) {
       .setDisabled(true),
 
     new ButtonBuilder()
-      .setCustomId("config_personalizacao_off")
-      .setLabel("Personalização")
-      .setEmoji("🖌️")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(true)
-  );
+  .setCustomId("config_personalizacao")
+  .setLabel("Personalização")
+  .setEmoji("🖌️")
+  .setStyle(ButtonStyle.Secondary)
+    );
 
   const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
