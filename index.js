@@ -1977,6 +1977,64 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
 
+              if (interaction.customId === "personalization_invite_channel") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem configurar o canal de invites.",
+            ephemeral: true
+          });
+        }
+
+        const channelId = interaction.values[0];
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido. Selecione um canal de texto.",
+            ephemeral: true
+          });
+        }
+
+        updateGuildConfig(interaction.guild.id, {
+          inviteChannelId: channelId
+        });
+
+        await cacheGuildInvites(interaction.guild);
+
+        return interaction.reply({
+          content: `✅ Canal de invites configurado para <#${channelId}>.`,
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "personalization_welcome_channel") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem configurar o canal de entradas.",
+            ephemeral: true
+          });
+        }
+
+        const channelId = interaction.values[0];
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido. Selecione um canal de texto.",
+            ephemeral: true
+          });
+        }
+
+        updateGuildConfig(interaction.guild.id, {
+          welcomeChannelId: channelId
+        });
+
+        return interaction.reply({
+          content: `✅ Canal de entradas configurado para <#${channelId}>.`,
+          ephemeral: true
+        });
+      }
+
         const embed = new EmbedBuilder()
           .setColor(getConfigColor(interaction.guild.id))
           .setTitle("📨 | Criar mensagem personalizada")
