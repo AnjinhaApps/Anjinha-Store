@@ -2444,22 +2444,24 @@ client.on("guildMemberAdd", async (member) => {
 
       if (welcomeChannel) {
         const welcomeEmbed = new EmbedBuilder()
-          .setColor(getConfigColor(member.guild.id))
-          .setTitle("👋 Novo membro entrou!")
-          .setDescription(
-            `Seja bem-vindo(a), ${member}!\n\n` +
-              `Agora somos **${member.guild.memberCount} membros** no servidor.`
-          )
-          .setThumbnail(
-            member.user.displayAvatarURL({
-              dynamic: true,
-              size: 1024
-            })
-          )
-          .setFooter({
-            text: `${member.guild.name} • Entrada registrada`
-          })
-          .setTimestamp();
+  .setColor(getConfigColor(member.guild.id))
+  .setTitle("🎀 | Nova entrada na Angel Store")
+  .setDescription(
+    `Seja muito bem-vindo(a), ${member}!\n\n` +
+      "Estamos felizes em ter você aqui na nossa comunidade.\n" +
+      "Confira os canais importantes, leia as regras e aproveite nossos produtos.\n\n" +
+      `👥 Agora somos **${member.guild.memberCount} membros**.`
+  )
+  .setThumbnail(
+    member.user.displayAvatarURL({
+      dynamic: true,
+      size: 1024
+    })
+  )
+  .setFooter({
+    text: `${member.guild.name} • Bem-vindo(a)!`
+  })
+  .setTimestamp();
 
         await welcomeChannel.send({
           content: `${member}`,
@@ -2473,18 +2475,19 @@ client.on("guildMemberAdd", async (member) => {
 
       if (inviteChannel) {
         const inviteEmbed = new EmbedBuilder()
-          .setColor(getConfigColor(member.guild.id))
-          .setTitle("📨 Entrada por convite")
-          .setDescription(
-            `👤 **Membro:** ${member} \`${member.user.tag}\`\n` +
-              `🆔 **ID:** \`${member.id}\`\n\n` +
-              (usedInvite
-                ? `🔗 **Convite usado:** \`${usedInvite.code}\`\n` +
-                  `👑 **Criado por:** ${
-                    usedInvite.inviter ? `<@${usedInvite.inviter.id}>` : "`Desconhecido`"
-                  }\n` +
-                  `📊 **Usos totais:** \`${usedInvite.uses || 0}\``
-                : "⚠️ Não consegui identificar qual invite foi usado.")
+  .setColor(getConfigColor(member.guild.id))
+  .setTitle("📨 | Novo membro via convite")
+  .setDescription(
+    `👤 **Membro:** ${member} \`${member.user.tag}\`\n` +
+      `🆔 **ID:** \`${member.id}\`\n\n` +
+      (usedInvite
+        ? `🔗 **Convite usado:** \`${usedInvite.code}\`\n` +
+          `👑 **Convidado por:** ${
+            usedInvite.inviter ? `<@${usedInvite.inviter.id}>` : "`Desconhecido`"
+          }\n` +
+          `📊 **Usos totais do convite:** \`${usedInvite.uses || 0}\``
+        : "⚠️ Não consegui identificar qual convite foi usado.")
+  )
           )
           .setThumbnail(
             member.user.displayAvatarURL({
