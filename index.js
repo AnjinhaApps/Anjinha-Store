@@ -2488,7 +2488,7 @@ client.on("guildMemberAdd", async (member) => {
           `📊 **Usos totais do convite:** \`${usedInvite.uses || 0}\``
         : "⚠️ Não consegui identificar qual convite foi usado.")
   )
-          )
+  
           .setThumbnail(
             member.user.displayAvatarURL({
               dynamic: true,
