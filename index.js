@@ -467,6 +467,79 @@ async function sendAutomationPanel(interaction) {
   });
 }
 
+async function sendPersonalizationPanel(interaction) {
+  const config = getGuildConfig(interaction.guild.id);
+
+  const guildIcon = interaction.guild.iconURL({
+    dynamic: true,
+    size: 1024
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(getConfigColor(interaction.guild.id))
+    .setTitle("🖌️ | Painel de Personalização")
+    .setDescription(
+      "Configure os canais personalizados do servidor.\n\n" +
+        "📨 **Canal de invites**\n" +
+        "Canal onde o bot vai enviar logs de convites usados quando alguém entrar.\n\n" +
+        "👋 **Canal de entradas**\n" +
+        "Canal onde o bot vai anunciar novos membros entrando no servidor.\n\n" +
+        "────────────────────────\n\n" +
+        `📨 **Canal de invites atual:** ${
+          config.inviteChannelId ? `<#${config.inviteChannelId}>` : "`Não configurado`"
+        }\n` +
+        `👋 **Canal de entradas atual:** ${
+          config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : "`Não configurado`"
+        }`
+    )
+    .setFooter({
+      text: `${interaction.guild.name} • Personalização`,
+      iconURL: guildIcon || undefined
+    })
+    .setTimestamp();
+
+  if (guildIcon) {
+    embed.setThumbnail(guildIcon);
+  }
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId("personalization_invite_channel")
+      .setPlaceholder("Selecionar canal de invites")
+      .setChannelTypes(ChannelType.GuildText)
+      .setMinValues(1)
+      .setMaxValues(1)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId("personalization_welcome_channel")
+      .setPlaceholder("Selecionar canal de entradas")
+      .setChannelTypes(ChannelType.GuildText)
+      .setMinValues(1)
+      .setMaxValues(1)
+  );
+
+  return interaction.reply({
+    embeds: [embed],
+    components: [row1, row2],
+    ephemeral: true
+  });
+}
+
+async function cacheGuildInvites(guild) {
+  try {
+    const invites = await guild.invites.fetch();
+
+    client.invites.set(
+      guild.id,
+      new Map(invites.map((invite) => [invite.code, invite.uses || 0]))
+    );
+  } catch {
+    client.invites.set(guild.id, new Map());
+  }
+}
+
 async function getOrCreateCart(interaction, db) {
   const guild = interaction.guild;
   const user = interaction.user;
