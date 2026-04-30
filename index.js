@@ -2304,4 +2304,107 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
+client.on("guildMemberAdd", async (member) => {
+  try {
+    const config = getGuildConfig(member.guild.id);
+
+    let usedInvite = null;
+
+    try {
+      const oldInvites = client.invites.get(member.guild.id) || new Map();
+      const newInvites = await member.guild.invites.fetch();
+
+      usedInvite = newInvites.find((invite) => {
+        const oldUses = oldInvites.get(invite.code) || 0;
+        return (invite.uses || 0) > oldUses;
+      });
+
+      client.invites.set(
+        member.guild.id,
+        new Map(newInvites.map((invite) => [invite.code, invite.uses || 0]))
+      );
+    } catch {
+      usedInvite = null;
+    }
+
+    if (config.welcomeChannelId) {
+      const welcomeChannel = member.guild.channels.cache.get(config.welcomeChannelId);
+
+      if (welcomeChannel) {
+        const welcomeEmbed = new EmbedBuilder()
+          .setColor(getConfigColor(member.guild.id))
+          .setTitle("👋 Novo membro entrou!")
+          .setDescription(
+            `Seja bem-vindo(a), ${member}!\n\n` +
+              `Agora somos **${member.guild.memberCount} membros** no servidor.`
+          )
+          .setThumbnail(
+            member.user.displayAvatarURL({
+              dynamic: true,
+              size: 1024
+            })
+          )
+          .setFooter({
+            text: `${member.guild.name} • Entrada registrada`
+          })
+          .setTimestamp();
+
+        await welcomeChannel.send({
+          content: `${member}`,
+          embeds: [welcomeEmbed]
+        });
+      }
+    }
+
+    if (config.inviteChannelId) {
+      const inviteChannel = member.guild.channels.cache.get(config.inviteChannelId);
+
+      if (inviteChannel) {
+        const inviteEmbed = new EmbedBuilder()
+          .setColor(getConfigColor(member.guild.id))
+          .setTitle("📨 Entrada por convite")
+          .setDescription(
+            `👤 **Membro:** ${member} \`${member.user.tag}\`\n` +
+              `🆔 **ID:** \`${member.id}\`\n\n` +
+              (usedInvite
+                ? `🔗 **Convite usado:** \`${usedInvite.code}\`\n` +
+                  `👑 **Criado por:** ${
+                    usedInvite.inviter ? `<@${usedInvite.inviter.id}>` : "`Desconhecido`"
+                  }\n` +
+                  `📊 **Usos totais:** \`${usedInvite.uses || 0}\``
+                : "⚠️ Não consegui identificar qual invite foi usado.")
+          )
+          .setThumbnail(
+            member.user.displayAvatarURL({
+              dynamic: true,
+              size: 1024
+            })
+          )
+          .setFooter({
+            text: `${member.guild.name} • Sistema de invites`
+          })
+          .setTimestamp();
+
+        await inviteChannel.send({
+          embeds: [inviteEmbed]
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Erro no guildMemberAdd:", error);
+  }
+});
+
+client.on("inviteCreate", async (invite) => {
+  try {
+    await cacheGuildInvites(invite.guild);
+  } catch {}
+});
+
+client.on("inviteDelete", async (invite) => {
+  try {
+    await cacheGuildInvites(invite.guild);
+  } catch {}
+});
+
 client.login(process.env.TOKEN);
