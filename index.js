@@ -15,7 +15,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
   SlashCommandBuilder,
-  ChannelSelectMenuBuilder
+  ChannelSelectMenuBuilder,
+  StringSelectMenuBuilder
 } = require("discord.js");
 
 const client = new Client({
@@ -42,7 +43,8 @@ function loadDB() {
           products: {},
           carts: {},
           coupons: {},
-          guildConfigs: {}
+          guildConfigs: {},
+          apPanels: {}
         },
         null,
         2
@@ -56,6 +58,7 @@ function loadDB() {
   if (!db.carts) db.carts = {};
   if (!db.coupons) db.coupons = {};
   if (!db.guildConfigs) db.guildConfigs = {};
+  if (!db.apPanels) db.apPanels = {};
 
   saveDB(db);
   return db;
@@ -96,7 +99,22 @@ function defaultGuildConfig() {
     pixKey: process.env.PIX_KEY || null,
     cartCategoryId: null,
     inviteChannelId: null,
-    welcomeChannelId: null
+    welcomeChannelId: null,
+    apPanel: {
+      channelId: null,
+      team: "1v1",
+      device: "Mobile",
+      minValue: 0.3,
+      maxValue: 1,
+      title: "Fila",
+      message: "Clique em um botão para entrar na fila.",
+      image: "",
+      color: "#00ffff",
+      fullLabel: "🔫 Full Ump Xm8",
+      mobiladorLabel: "🧽 Mobilador",
+      normalLabel: "📱 Normal",
+      exitLabel: "➡️ Sair"
+    }
   };
 }
 
@@ -105,6 +123,11 @@ function getGuildConfig(guildId) {
 
   if (!db.guildConfigs[guildId]) {
     db.guildConfigs[guildId] = defaultGuildConfig();
+    saveDB(db);
+  }
+
+  if (!db.guildConfigs[guildId].apPanel) {
+    db.guildConfigs[guildId].apPanel = defaultGuildConfig().apPanel;
     saveDB(db);
   }
 
@@ -280,6 +303,309 @@ async function updateCouponMessage(guild, coupon) {
   } catch {
     return false;
   }
+}
+
+
+function getAPConfig(guildId) {
+  const config = getGuildConfig(guildId);
+
+  if (!config.apPanel) {
+    config.apPanel = defaultGuildConfig().apPanel;
+    updateGuildConfig(guildId, { apPanel: config.apPanel });
+  }
+
+  return config.apPanel;
+}
+
+function updateAPConfig(guildId, data) {
+  const config = getGuildConfig(guildId);
+  const current = config.apPanel || defaultGuildConfig().apPanel;
+
+  return updateGuildConfig(guildId, {
+    apPanel: {
+      ...current,
+      ...data
+    }
+  }).apPanel;
+}
+
+function formatAPMoney(value) {
+  return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
+}
+
+function normalizeAPDevice(device) {
+  const text = String(device || "Mobile").toLowerCase();
+  if (text.includes("pc")) return "Pc";
+  if (text.includes("misto")) return "Misto";
+  return "Mobile";
+}
+
+function apDeviceEmoji(device) {
+  const normalized = normalizeAPDevice(device);
+  if (normalized === "Pc") return "💻";
+  if (normalized === "Misto") return "🔄";
+  return "📱";
+}
+
+function nextAPValue(value) {
+  if (value < 1) return Math.round((value + 0.2) * 100) / 100;
+  if (value < 10) return Math.round((value + 1) * 100) / 100;
+  if (value < 50) return Math.round((value + 10) * 100) / 100;
+  return Math.round((value + 50) * 100) / 100;
+}
+
+function generateAPValues(minValue, maxValue) {
+  let min = Number(minValue);
+  let max = Number(maxValue);
+
+  if (!Number.isFinite(min) || min <= 0) min = 0.3;
+  if (!Number.isFinite(max) || max < min) max = min;
+
+  const values = [];
+  let current = Math.round(min * 100) / 100;
+  const limit = Math.round(max * 100) / 100;
+
+  while (current <= limit + 0.0001 && values.length < 100) {
+    values.push(Number(current.toFixed(2)));
+    const next = nextAPValue(current);
+    if (next <= current) break;
+    current = next;
+  }
+
+  return values;
+}
+
+function buildAPPlayersText(panel) {
+  const players = panel.players || {};
+  const entries = Object.entries(players);
+
+  if (entries.length === 0) return "Sem jogadores...";
+
+  return entries
+    .map(([userId, data]) => `<@${userId}> — **${data.choice}**`)
+    .join("\n");
+}
+
+function buildAPEmbed(guildId, panel) {
+  const config = getAPConfig(guildId);
+  const device = normalizeAPDevice(panel.device || config.device);
+  const team = panel.team || config.team;
+  const title = panel.title || config.title || "Fila";
+  const image = panel.image ?? config.image;
+  const color = parseColor(panel.color || config.color || "#00ffff");
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`${team} | ${title}`)
+    .setDescription(
+      `Formato: **${team} ${device}**\n` +
+        `💰 Preço: **${formatAPMoney(panel.price)}**\n\n` +
+        `👑 **Jogadores**\n${buildAPPlayersText(panel)}`
+    )
+    .setTimestamp();
+
+  if (image) embed.setThumbnail(image);
+
+  return embed;
+}
+
+function buildAPRows(guildId, panel) {
+  const config = getAPConfig(guildId);
+  const device = normalizeAPDevice(panel.device || config.device);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ap_join_normal")
+      .setLabel(config.normalLabel || "Normal")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("ap_join_full")
+      .setLabel(config.fullLabel || "Full Ump Xm8")
+      .setStyle(ButtonStyle.Success)
+  );
+
+  if (device === "Mobile") {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId("ap_join_mobilador")
+        .setLabel(config.mobiladorLabel || "Mobilador")
+        .setStyle(ButtonStyle.Success)
+    );
+  }
+
+  row.addComponents(
+    new ButtonBuilder()
+      .setCustomId("ap_leave")
+      .setLabel(config.exitLabel || "Sair")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return [row];
+}
+
+async function updateAPMessage(guild, messageId) {
+  const db = loadDB();
+  const panel = db.apPanels[messageId];
+  if (!panel) return false;
+
+  try {
+    const channel = await guild.channels.fetch(panel.channelId);
+    if (!channel || !channel.isTextBased()) return false;
+
+    const message = await channel.messages.fetch(messageId);
+
+    await message.edit({
+      embeds: [buildAPEmbed(guild.id, panel)],
+      components: buildAPRows(guild.id, panel)
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildAPPainelConfigEmbed(interaction) {
+  const config = getAPConfig(interaction.guild.id);
+  const values = generateAPValues(config.minValue, config.maxValue);
+
+  return new EmbedBuilder()
+    .setColor(parseColor(config.color || "#00ffff"))
+    .setTitle("🎮 Painel de AP / Filas")
+    .setDescription(
+      "Configure abaixo como os painéis serão enviados.\n\n" +
+        `📢 **Canal:** ${config.channelId ? `<#${config.channelId}>` : "`Não configurado`"}\n` +
+        `👥 **Equipe:** \`${config.team}\`\n` +
+        `${apDeviceEmoji(config.device)} **Dispositivo:** \`${normalizeAPDevice(config.device)}\`\n` +
+        `💰 **Valores:** \`${formatAPMoney(config.minValue)} até ${formatAPMoney(config.maxValue)}\`\n` +
+        `📦 **Quantidade de painéis:** \`${values.length}\`\n` +
+        `📝 **Título:** \`${config.title || "Fila"}\`\n` +
+        `🖼️ **Imagem:** ${config.image ? config.image : "`Sem imagem`"}\n\n` +
+        "Depois de configurar, clique em **Enviar Painéis**."
+    )
+    .setFooter({ text: "Sistema de filas estilo TIGRE NEGRO" })
+    .setTimestamp();
+}
+
+function buildAPPainelConfigRows() {
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ap_edit_message")
+      .setLabel("Editar mensagem")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("ap_edit_team")
+      .setLabel("Editar equipe")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("ap_edit_device")
+      .setLabel("Dispositivo")
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ap_edit_values")
+      .setLabel("Valores")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("ap_edit_channel")
+      .setLabel("Editar canal")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("ap_send_panels")
+      .setLabel("Enviar Painéis")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return [row1, row2];
+}
+
+async function sendAPPainelConfig(interaction) {
+  return interaction.reply({
+    embeds: [buildAPPainelConfigEmbed(interaction)],
+    components: buildAPPainelConfigRows(),
+    ephemeral: true
+  });
+}
+
+async function refreshAPPainelConfig(interaction, content = "✅ Configuração atualizada.") {
+  return interaction.update({
+    content,
+    embeds: [buildAPPainelConfigEmbed(interaction)],
+    components: buildAPPainelConfigRows()
+  });
+}
+
+async function sendAPPanels(interaction) {
+  const config = getAPConfig(interaction.guild.id);
+
+  if (!config.channelId) {
+    return interaction.reply({
+      content: "❌ Configure o canal onde os painéis serão enviados.",
+      ephemeral: true
+    });
+  }
+
+  const channel = interaction.guild.channels.cache.get(config.channelId);
+
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    return interaction.reply({
+      content: "❌ Canal inválido. Configure um canal de texto válido.",
+      ephemeral: true
+    });
+  }
+
+  const values = generateAPValues(config.minValue, config.maxValue);
+
+  if (values.length === 0) {
+    return interaction.reply({
+      content: "❌ Nenhum valor válido foi gerado. Confira mínimo e máximo.",
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content: `⏳ Enviando ${values.length} painéis em ${channel}...`,
+    ephemeral: true
+  });
+
+  const db = loadDB();
+
+  for (const price of values) {
+    const panel = {
+      guildId: interaction.guild.id,
+      channelId: channel.id,
+      team: config.team,
+      device: normalizeAPDevice(config.device),
+      title: config.title || "Fila",
+      message: config.message || "",
+      image: config.image || "",
+      color: config.color || "#00ffff",
+      price,
+      players: {},
+      createdAt: Date.now()
+    };
+
+    const msg = await channel.send({
+      embeds: [buildAPEmbed(interaction.guild.id, panel)],
+      components: buildAPRows(interaction.guild.id, panel)
+    });
+
+    panel.messageId = msg.id;
+    db.apPanels[msg.id] = panel;
+    saveDB(db);
+  }
+
+  return interaction.followUp({
+    content: `✅ ${values.length} painéis enviados com sucesso em ${channel}.`,
+    ephemeral: true
+  });
 }
 
 async function sendConfigPanel(interaction) {
@@ -757,8 +1083,13 @@ client.once("ready", async () => {
 
   const commands = [
     new SlashCommandBuilder()
+      .setName("configurar")
+      .setDescription("Abre o painel de configuração geral do bot.")
+      .toJSON(),
+
+    new SlashCommandBuilder()
       .setName("painel")
-      .setDescription("Abre o painel de configuração do bot.")
+      .setDescription("Configura e envia painéis de AP / filas.")
       .toJSON(),
 
     new SlashCommandBuilder()
@@ -982,19 +1313,26 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "painel") {
-        if (
-          !interaction.member.permissions.has(
-            PermissionsBitField.Flags.Administrator
-          )
-        ) {
+      if (interaction.commandName === "configurar") {
+        if (!isAdmin(interaction.member)) {
           return interaction.reply({
-            content: "❌ Apenas administradores podem abrir o painel.",
+            content: "❌ Apenas administradores podem abrir a configuração.",
             ephemeral: true
           });
         }
 
         return sendConfigPanel(interaction);
+      }
+
+      if (interaction.commandName === "painel") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({
+            content: "❌ Apenas administradores podem abrir o painel de AP.",
+            ephemeral: true
+          });
+        }
+
+        return sendAPPainelConfig(interaction);
       }
 
       if (interaction.commandName === "addproduto") {
@@ -1039,6 +1377,204 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const db = loadDB();
+
+
+      if (interaction.customId === "ap_edit_message") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        const config = getAPConfig(interaction.guild.id);
+        const modal = new ModalBuilder()
+          .setCustomId("modal_ap_message")
+          .setTitle("Editar mensagem do painel");
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("title")
+              .setLabel("Título da fila")
+              .setValue(config.title || "Fila")
+              .setRequired(true)
+              .setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("message")
+              .setLabel("Mensagem/observação")
+              .setValue(config.message || "Clique em um botão para entrar na fila.")
+              .setRequired(false)
+              .setStyle(TextInputStyle.Paragraph)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("image")
+              .setLabel("URL da imagem/thumbnail")
+              .setValue(config.image || "")
+              .setRequired(false)
+              .setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("color")
+              .setLabel("Cor HEX")
+              .setValue(config.color || "#00ffff")
+              .setRequired(false)
+              .setStyle(TextInputStyle.Short)
+          )
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId === "ap_edit_values") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        const config = getAPConfig(interaction.guild.id);
+        const modal = new ModalBuilder()
+          .setCustomId("modal_ap_values")
+          .setTitle("Editar valores dos painéis");
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("min")
+              .setLabel("Valor mínimo")
+              .setPlaceholder("Exemplo: 0,30")
+              .setValue(String(config.minValue).replace(".", ","))
+              .setRequired(true)
+              .setStyle(TextInputStyle.Short)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("max")
+              .setLabel("Valor máximo")
+              .setPlaceholder("Exemplo: 100")
+              .setValue(String(config.maxValue).replace(".", ","))
+              .setRequired(true)
+              .setStyle(TextInputStyle.Short)
+          )
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId === "ap_edit_channel") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId("modal_ap_channel")
+          .setTitle("Canal dos painéis de AP");
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("channel")
+              .setLabel("ID do canal")
+              .setPlaceholder("Cole aqui o ID do canal")
+              .setRequired(true)
+              .setStyle(TextInputStyle.Short)
+          )
+        );
+
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId === "ap_edit_team") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("ap_select_team")
+            .setPlaceholder("Escolha a equipe")
+            .addOptions(
+              { label: "1v1", value: "1v1", emoji: "1️⃣" },
+              { label: "2v2", value: "2v2", emoji: "2️⃣" },
+              { label: "3v3", value: "3v3", emoji: "3️⃣" },
+              { label: "4v4", value: "4v4", emoji: "4️⃣" }
+            )
+        );
+
+        return interaction.reply({
+          content: "👥 Selecione a equipe do painel:",
+          components: [row],
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "ap_edit_device") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("ap_select_device")
+            .setPlaceholder("Escolha o dispositivo")
+            .addOptions(
+              { label: "Pc", value: "Pc", emoji: "💻" },
+              { label: "Mobile", value: "Mobile", emoji: "📱" },
+              { label: "Misto", value: "Misto", emoji: "🔄" }
+            )
+        );
+
+        return interaction.reply({
+          content: "📱 Selecione o dispositivo do painel:",
+          components: [row],
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "ap_send_panels") {
+        if (!isAdmin(interaction.member)) {
+          return interaction.reply({ content: "❌ Apenas administradores.", ephemeral: true });
+        }
+
+        return sendAPPanels(interaction);
+      }
+
+      if (["ap_join_normal", "ap_join_full", "ap_join_mobilador", "ap_leave"].includes(interaction.customId)) {
+        const freshDb = loadDB();
+        const panel = freshDb.apPanels[interaction.message.id];
+
+        if (!panel) {
+          return interaction.reply({
+            content: "❌ Este painel não está registrado no banco de dados.",
+            ephemeral: true
+          });
+        }
+
+        if (interaction.customId === "ap_leave") {
+          delete panel.players[interaction.user.id];
+        } else {
+          const labels = {
+            ap_join_normal: getAPConfig(interaction.guild.id).normalLabel || "Normal",
+            ap_join_full: getAPConfig(interaction.guild.id).fullLabel || "Full Ump Xm8",
+            ap_join_mobilador: getAPConfig(interaction.guild.id).mobiladorLabel || "Mobilador"
+          };
+
+          panel.players[interaction.user.id] = {
+            choice: labels[interaction.customId],
+            username: interaction.user.username,
+            updatedAt: Date.now()
+          };
+        }
+
+        freshDb.apPanels[interaction.message.id] = panel;
+        saveDB(freshDb);
+
+        await interaction.update({
+          embeds: [buildAPEmbed(interaction.guild.id, panel)],
+          components: buildAPRows(interaction.guild.id, panel)
+        });
+        return;
+      }
 
         const product = {
           id: generateId(),
@@ -1367,7 +1903,27 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-        if (interaction.isChannelSelectMenu()) {
+    
+    if (interaction.isStringSelectMenu()) {
+      if (!isAdmin(interaction.member)) {
+        return interaction.reply({
+          content: "❌ Apenas administradores podem alterar essa configuração.",
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "ap_select_team") {
+        updateAPConfig(interaction.guild.id, { team: interaction.values[0] });
+        return refreshAPPainelConfig(interaction, "✅ Equipe alterada com sucesso.");
+      }
+
+      if (interaction.customId === "ap_select_device") {
+        updateAPConfig(interaction.guild.id, { device: interaction.values[0] });
+        return refreshAPPainelConfig(interaction, "✅ Dispositivo alterado com sucesso.");
+      }
+    }
+
+    if (interaction.isChannelSelectMenu()) {
       if (interaction.customId === "automation_select_channel") {
         if (!isAdmin(interaction.member)) {
           return interaction.reply({
@@ -2070,111 +2626,75 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-        if (interaction.isChannelSelectMenu()) {
-      if (interaction.customId === "automation_select_channel") {
-        if (!isAdmin(interaction.member)) {
-          return interaction.reply({
-            content: "❌ Apenas administradores podem usar a automação.",
-            ephemeral: true
-          });
-        }
-
-        const channelId = interaction.values[0];
-        const channel = interaction.guild.channels.cache.get(channelId);
-
-        if (!channel || channel.type !== ChannelType.GuildText) {
-          return interaction.reply({
-            content: "❌ Canal inválido. Selecione um canal de texto.",
-            ephemeral: true
-          });
-        }
-
-              if (interaction.customId === "personalization_invite_channel") {
-        if (!isAdmin(interaction.member)) {
-          return interaction.reply({
-            content: "❌ Apenas administradores podem configurar o canal de invites.",
-            ephemeral: true
-          });
-        }
-
-        const channelId = interaction.values[0];
-        const channel = interaction.guild.channels.cache.get(channelId);
-
-        if (!channel || channel.type !== ChannelType.GuildText) {
-          return interaction.reply({
-            content: "❌ Canal inválido. Selecione um canal de texto.",
-            ephemeral: true
-          });
-        }
-
-        updateGuildConfig(interaction.guild.id, {
-          inviteChannelId: channelId
-        });
-
-        await cacheGuildInvites(interaction.guild);
-
-        return interaction.reply({
-          content: `✅ Canal de invites configurado para <#${channelId}>.`,
-          ephemeral: true
-        });
-      }
-
-      if (interaction.customId === "personalization_welcome_channel") {
-        if (!isAdmin(interaction.member)) {
-          return interaction.reply({
-            content: "❌ Apenas administradores podem configurar o canal de entradas.",
-            ephemeral: true
-          });
-        }
-
-        const channelId = interaction.values[0];
-        const channel = interaction.guild.channels.cache.get(channelId);
-
-        if (!channel || channel.type !== ChannelType.GuildText) {
-          return interaction.reply({
-            content: "❌ Canal inválido. Selecione um canal de texto.",
-            ephemeral: true
-          });
-        }
-
-        updateGuildConfig(interaction.guild.id, {
-          welcomeChannelId: channelId
-        });
-
-        return interaction.reply({
-          content: `✅ Canal de entradas configurado para <#${channelId}>.`,
-          ephemeral: true
-        });
-      }
-
-        const embed = new EmbedBuilder()
-          .setColor(getConfigColor(interaction.guild.id))
-          .setTitle("📨 | Criar mensagem personalizada")
-          .setDescription(
-            `Canal selecionado: <#${channelId}>\n\n` +
-              "Clique no botão abaixo para configurar a embed personalizada que será enviada nesse canal."
-          )
-          .setFooter({
-            text: `${interaction.guild.name} • Mensagem personalizada`
-          })
-          .setTimestamp();
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`custom_message_create_${channelId}`)
-            .setLabel("Criar mensagem personalizada")
-            .setEmoji("📨")
-            .setStyle(ButtonStyle.Primary)
-        );
-
-        return interaction.update({
-          embeds: [embed],
-          components: [row]
-        });
-      }
-    }
-
     if (interaction.isModalSubmit()) {
+
+      if (interaction.customId === "modal_ap_message") {
+        const title = interaction.fields.getTextInputValue("title").trim();
+        const message = interaction.fields.getTextInputValue("message").trim();
+        const image = interaction.fields.getTextInputValue("image").trim();
+        const color = interaction.fields.getTextInputValue("color").trim() || "#00ffff";
+
+        if (color && !/^#?[0-9A-Fa-f]{6}$/.test(color)) {
+          return interaction.reply({
+            content: "❌ Cor inválida. Use HEX. Exemplo: #00ffff",
+            ephemeral: true
+          });
+        }
+
+        updateAPConfig(interaction.guild.id, {
+          title,
+          message,
+          image,
+          color: color.startsWith("#") ? color : `#${color}`
+        });
+
+        return interaction.reply({
+          content: "✅ Mensagem do painel de AP atualizada.",
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "modal_ap_values") {
+        const min = Number(interaction.fields.getTextInputValue("min").replace(",", "."));
+        const max = Number(interaction.fields.getTextInputValue("max").replace(",", "."));
+
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max < min) {
+          return interaction.reply({
+            content: "❌ Valores inválidos. O mínimo precisa ser maior que 0 e o máximo precisa ser maior ou igual ao mínimo.",
+            ephemeral: true
+          });
+        }
+
+        updateAPConfig(interaction.guild.id, {
+          minValue: Math.round(min * 100) / 100,
+          maxValue: Math.round(max * 100) / 100
+        });
+
+        return interaction.reply({
+          content: `✅ Valores atualizados: ${formatAPMoney(min)} até ${formatAPMoney(max)}.`,
+          ephemeral: true
+        });
+      }
+
+      if (interaction.customId === "modal_ap_channel") {
+        const channelId = interaction.fields.getTextInputValue("channel").trim();
+        const channel = interaction.guild.channels.cache.get(channelId);
+
+        if (!channel || channel.type !== ChannelType.GuildText) {
+          return interaction.reply({
+            content: "❌ Canal inválido. Cole o ID de um canal de texto.",
+            ephemeral: true
+          });
+        }
+
+        updateAPConfig(interaction.guild.id, { channelId });
+
+        return interaction.reply({
+          content: `✅ Canal dos painéis configurado para ${channel}.`,
+          ephemeral: true
+        });
+      }
+
       if (interaction.customId === "modal_config_loja") {
         const storeName = interaction.fields
           .getTextInputValue("store_name")
